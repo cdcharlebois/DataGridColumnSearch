@@ -15,9 +15,10 @@ define([
     "dojo/html",
     "dojo/_base/event",
     "dojo/query",
+    "dojo/aspect"
 
 
-], function(declare, _WidgetBase, dom, dojoDom, dojoProp, dojoGeometry, dojoClass, dojoStyle, dojoConstruct, dojoArray, dojoLang, dojoText, dojoHtml, dojoEvent, dojoQuery) {
+], function(declare, _WidgetBase, dom, dojoDom, dojoProp, dojoGeometry, dojoClass, dojoStyle, dojoConstruct, dojoArray, dojoLang, dojoText, dojoHtml, dojoEvent, dojoQuery, dojoAspect) {
     "use strict";
 
     return declare("DataGridColumnSearch.widget.DataGridColumnSearch", [_WidgetBase], {
@@ -37,13 +38,38 @@ define([
 
         postCreate: function() {
             logger.debug(this.id + ".postCreate");
+
+            var gridNode = dojoQuery(".mx-name-" + this.targetGridName, this.domNode.parentNode)[0];
+            if (gridNode) {
+                var self = this;
+                this._grid = dijit.registry.byNode(gridNode);
+
+                //if grid is loaded, add the search boxes. If not, listen for the postCreate.
+                if (this._grid.isLoaded()) {
+                    this._updateRendering();
+                } else {
+                    dojoAspect.after(this._grid, "postCreate", function(deferred) {
+                        self._updateRendering();
+                        return deferred;
+                    });
+                }
+            } else {
+                console.log("Could not find the grid node in postCreate.");
+            }
         },
 
         update: function(obj, callback) {
             logger.debug(this.id + ".update");
 
             this._contextObj = obj;
-            this._updateRendering(callback);
+            var self = this;
+            //if the grid refreshes (like in a tab set to reload), re-apply the search
+            dojoAspect.after(this._grid, "refreshGrid", function(deferred) {
+                self._doSearch();
+                return deferred;
+            });
+
+            if (callback) callback();
         },
 
         resize: function(box) {
@@ -54,38 +80,30 @@ define([
             logger.debug(this.id + ".uninitialize");
         },
 
-        _updateRendering: function(callback) {
+        _updateRendering: function() {
             logger.debug(this.id + "._updateRendering");
 
-            var gridNode = dojoQuery(".mx-name-" + this.targetGridName, this.domNode.parentNode)[0];
-            if (gridNode) {
-                this._grid = dijit.registry.byNode(gridNode);
-                if (this._grid) {
-                    this._addSearchBoxes();
-                    switch (this._grid.config.datasource.type) {
-                        case "entityPath":
-                        case "microflow":
-                            this._dataType = "local";
-                            break;
-                        case "xpath":
-                            this._dataType = "xpath";
-                            break;
-                        default:
-                            this._dataType = "unsupported";
-                            break;
-                    }
-                } else {
-                    console.log("Found a DOM node but could not find the grid widget.");
+            if (this._grid) {
+                this._addSearchBoxes();
+                switch (this._grid.config.datasource.type) {
+                    case "entityPath":
+                    case "microflow":
+                        this._dataType = "local";
+                        break;
+                    case "xpath":
+                        this._dataType = "xpath";
+                        break;
+                    default:
+                        this._dataType = "unsupported";
+                        break;
                 }
             } else {
-                console.log("Could not find the grid node.");
+                console.log("Could not find the grid node in _updateRendering.");
             }
-
-            mendix.lang.nullExec(callback);
         },
         _addSearchBoxes: function() {
             for (var i = 0; i < this._grid._gridColumnNodes.length; i++) {
-                var renderType = this._grid._visibleColumns[i].render;
+                var renderType = this._grid._visibleColumns[i].render
                 if (renderType === "String") {
                     this._addStringSearchBox(i, "contains", "search");
                 } else if (renderType === "Integer" || renderType === "Long") {
@@ -172,6 +190,7 @@ define([
             this.connect(searchNode, "keypress", "_escapeReset");
             this.connect(datePicker, "onChange", "_doSearch");
         },
+
         _addEnumSearchBox: function(i) {
             var searchNode = dojoConstruct.create("select");
             var searchAttr = this._grid._visibleColumns[i].tag;
@@ -310,7 +329,8 @@ define([
                     queryString += " and ";
                     queryString += searchObj.attr + "<" + tomorrow;
 
-                    queryString += ")";
+
+                    queryString += ")"
                     return queryString;
                 default:
                     return "";
@@ -343,19 +363,19 @@ define([
                 case "contains":
                     return function(rowObj) {
                         return rowObj.get(searchAttr).toString().toLowerCase().includes(cleanSearchValue);
-                    };
+                    }
                 case "starts-with":
                     return function(rowObj) {
                         return rowObj.get(searchAttr).toString().toLowerCase().indexOf(cleanSearchValue) === 0;
-                    };
+                    }
                 case "equals":
                     return function(rowObj) {
                         return rowObj.get(searchAttr).toString().toLowerCase() === cleanSearchValue;
-                    };
+                    }
                 case "boolean":
                     return function(rowObj) {
                         return rowObj.get(searchAttr).toString() === searchObj.node.value;
-                    };
+                    }
                 case "date":
                     var theDate = searchObj.widget._getValueAttr();
                     if (!theDate) {
@@ -372,7 +392,8 @@ define([
 
                     return function(rowObj) {
                         return rowObj.get(searchAttr) >= today && rowObj.get(searchAttr) < tomorrow;
-                    };
+
+                    }
                 default:
                     return null;
             }
@@ -406,6 +427,11 @@ define([
             var grid = this._grid,
                 datasource = grid._dataSource,
                 self = this;
+
+
+            if (!datasource._holdObjs) {
+                datasource._holdObjs = datasource._objs;
+            }
 
             clearTimeout(this._searchTimeout);
 
