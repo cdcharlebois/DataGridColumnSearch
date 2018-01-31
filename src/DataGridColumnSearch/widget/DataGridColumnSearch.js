@@ -45,7 +45,7 @@ define([
                 this._grid = dijit.registry.byNode(gridNode);
 
                 //if grid is loaded, add the search boxes. If not, listen for the postCreate.
-                if (this._grid.isLoaded()) {
+                if (this._grid._loaded || (this._grid.isLoaded && this._grid.isLoaded())) {
                     this._updateRendering();
                 } else {
                     dojoAspect.after(this._grid, "postCreate", function(deferred) {
@@ -64,7 +64,8 @@ define([
             this._contextObj = obj;
             var self = this;
             //if the grid refreshes (like in a tab set to reload), re-apply the search
-            dojoAspect.after(this._grid, "refreshGrid", function(deferred) {
+            //this._grid.registerToPluginEvent("triggerOnRefresh", this._doSearch.bind(this), true)
+            dojoAspect.after(this._grid, "applyContext", function(deferred, args) {
                 self._doSearch();
                 return deferred;
             });
@@ -140,6 +141,7 @@ define([
             this.connect(searchNode, "keyup", "_doSearch");
             this.connect(searchNode, "click", "_ignore");
             this.connect(searchNode, "keypress", "_ignore");
+            this.connect(searchNode, "keydown", "_ignore");
             this.connect(searchNode, "keypress", "_escapeReset");
         },
         _addDateSearchBox: function(i, format) {
@@ -187,6 +189,7 @@ define([
             this.connect(searchNode, "keyup", "_doSearch");
             this.connect(searchNode, "click", "_ignore");
             this.connect(searchNode, "keypress", "_ignore");
+            this.connect(searchNode, "keydown", "_ignore");
             this.connect(searchNode, "keypress", "_escapeReset");
             this.connect(datePicker, "onChange", "_doSearch");
         },
@@ -240,6 +243,7 @@ define([
             this.connect(searchNode, "onchange", "_doSearch");
             this.connect(searchNode, "click", "_ignore");
             this.connect(searchNode, "keypress", "_ignore");
+            this.connect(searchNode, "keydown", "_ignore");
             this.connect(searchNode, "keypress", "_escapeReset");
         },
         _addBooleanSearchBox: function(i) {
@@ -280,6 +284,7 @@ define([
             this.connect(searchNode, "onchange", "_doSearch");
             this.connect(searchNode, "click", "_ignore");
             this.connect(searchNode, "keypress", "_ignore");
+            this.connect(searchNode, "keydown", "_ignore");
             this.connect(searchNode, "keypress", "_escapeReset");
         },
         _buildDOMContainer: function() {
@@ -428,24 +433,24 @@ define([
                 datasource = grid._dataSource,
                 self = this;
 
-
-            if (!datasource._holdObjs) {
-                datasource._holdObjs = datasource._objs;
-            }
-
             clearTimeout(this._searchTimeout);
 
             if (this._dataType === 'xpath') {
                 this._searchTimeout = setTimeout(function() {
                     datasource.setConstraints(self._getXPathSearchConstraint());
+                    datasource.reload();
                     grid.reload();
                 }, 500);
             } else if (this._dataType === 'local') {
+                if (!datasource._holdObjs) {
+                    datasource._holdObjs = datasource._allObjects || datasource._allObjs;
+                }
+
                 this._searchTimeout = setTimeout(function() {
                     self.buildMicroflowFilter();
-                    datasource._objs = datasource._holdObjs.filter(datasource._filter);
-                    datasource.refresh();
-                    grid.refreshGrid();
+                    datasource._allObjects = datasource._holdObjs.filter(datasource._filter);
+                    datasource._updateClientPaging(datasource._allObjects);
+                    grid.fillGrid();
                 }, 500);
             }
         },
